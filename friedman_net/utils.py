@@ -66,7 +66,7 @@ def evaluate(
     with torch.no_grad():
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
-            outputs, _ = market_layer(data)
+            outputs, _, _ = market_layer(data)
             loss = criterion(outputs, target)
             total_loss += loss.item()
             num_batches += 1
@@ -89,7 +89,9 @@ def print_market_report(
     test_accuracy: float,
     num_bankruptcies: int,
     num_ipos: int,
-    ipo_details: List[Tuple[str, int]]
+    ipo_details: List[Tuple[str, int]],
+    images_seen: int,
+    train_accuracy: float = None
 ):
     """
     Print detailed market report for the generation.
@@ -103,6 +105,8 @@ def print_market_report(
         num_bankruptcies: Number of agents that went bankrupt
         num_ipos: Number of new agents created
         ipo_details: List of (mutation_type, child_hidden_dim) for each IPO
+        images_seen: Total number of training images processed in this generation
+        train_accuracy: Training accuracy percentage (optional)
     """
     agents = list(market_layer.agents)
     population = len(agents)
@@ -118,13 +122,25 @@ def print_market_report(
     avg_wallet = sum(a.wallet for a in agents) / population
     avg_age = sum(a.age for a in agents) / population
 
+    # Calculate money supply: treasury + sum of all agent wallets
+    total_agent_wealth = sum(a.wallet for a in agents)
+    money_supply = market_layer.treasury + total_agent_wealth
+
     print(f"\n{'='*70}")
     print(f"Generation {generation} Report")
     print(f"{'='*70}")
     print(f"Population: {population} agents")
-    print(f"Market Treasury: ${market_layer.market_wallet:.2f}")
-    print(f"Train Loss: {train_loss:.4f} | Test Loss: {test_loss:.4f}")
-    print(f"Test Accuracy: {test_accuracy:.2f}%")
+    print(f"Images Seen: {images_seen}")
+    print(f"Market Treasury: ${market_layer.treasury:.2f}")
+    print(f"Money Supply: ${money_supply:.2f}")
+
+    # Display losses and accuracies
+    if train_accuracy is not None:
+        print(f"Train Loss: {train_loss:.4f}, Accuracy: {train_accuracy:.2f}%")
+        print(f"Test Loss: {test_loss:.4f}, Accuracy: {test_accuracy:.2f}%")
+    else:
+        print(f"Train Loss: {train_loss:.4f} | Test Loss: {test_loss:.4f}")
+        print(f"Test Accuracy: {test_accuracy:.2f}%")
     print(f"Avg Hidden Dim: {avg_hidden:.1f} (std: {std_hidden:.1f})")
     print(f"Avg Agent Wallet: ${avg_wallet:.2f}")
     print(f"Avg Age: {avg_age:.1f} generations")
@@ -140,8 +156,13 @@ def print_market_report(
     for i, agent in enumerate(agents):
         profit = agent.wallet - agent.initial_wallet
         profit_str = f"+${profit:.1f}" if profit >= 0 else f"-${abs(profit):.1f}"
-        print(f"  Agent {i:2d}: hidden={agent.hidden_dim:4d}, "
-              f"wallet=${agent.wallet:7.2f}, age={agent.age:2d}, profit={profit_str}")
+
+        # Calculate win rate
+        win_rate = (agent.num_wins / agent.num_bids * 100) if agent.num_bids > 0 else 0.0
+
+        print(f"  Agent {agent.uid:3d}: hidden={agent.hidden_dim:4d}, "
+              f"wallet=${agent.wallet:7.2f}, age={agent.age:2d}, profit={profit_str}, "
+              f"bids={agent.num_bids}, wins={agent.num_wins} ({win_rate:.1f}%)")
     print(f"{'='*70}\n")
 
 

@@ -23,14 +23,19 @@ class EconomicAgent(nn.Module):
 
     def __init__(
         self,
+        uid: int,
         input_dim: int,
         hidden_dim: int,
         output_dim: int,
-        starting_wallet: float,
+        initial_cash_reserves: float,
         min_hidden_dim: int = 4,
-        max_hidden_dim: int = 2048
+        max_hidden_dim: int = 2048,
+        bid_floor: float = 0.01
     ):
         super().__init__()
+
+        # Identity
+        self.uid = uid
 
         # Ensure hidden_dim is within bounds
         hidden_dim = max(min_hidden_dim, min(hidden_dim, max_hidden_dim))
@@ -43,17 +48,24 @@ class EconomicAgent(nn.Module):
 
         # Economic state
         self.hidden_dim = hidden_dim
-        self.wallet = starting_wallet
-        self.initial_wallet = starting_wallet
+        self.wallet = initial_cash_reserves
+        self.initial_wallet = initial_cash_reserves
         self.age = 0
         self.revenue_earned = 0.0  # Track total revenue for this generation
+        self.bid_floor = bid_floor  # Minimum bid to prevent bidding collapse
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        # Bidding statistics (per generation)
+        self.num_bids = 0  # Total bids made
+        self.num_wins = 0  # Successful bids (in top-k)
+        self.num_losses = 0  # Failed bids (not in top-k)
+
+    def forward(self, x: torch.Tensor, expected_revenue: float = 0.0) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass with dual outputs.
 
         Args:
             x: Input tensor [batch_size, input_dim]
+            expected_revenue: Expected payout per prediction (for strategic bidding)
 
         Returns:
             output_logits: Classification logits [batch_size, output_dim]
@@ -61,10 +73,23 @@ class EconomicAgent(nn.Module):
         """
         hidden = self.relu(self.fc1(x))
         output_logits = self.fc2(hidden)
-        bid_scores = self.bid_head(hidden)
+
+        # Base bid from network + floor
+        base_bid = self.relu(self.bid_head(hidden)) + self.bid_floor
+
+        # Scale bids by expected revenue (agents bid more when payouts are higher)
+        # This allows strategic bidding and future problem-specific rewards
+        if expected_revenue > 0:
+            bid_scores = base_bid * expected_revenue
+        else:
+            bid_scores = base_bid
+
         return output_logits, bid_scores
 
     def reset_generation_stats(self):
         """Reset per-generation statistics."""
         self.initial_wallet = self.wallet
         self.revenue_earned = 0.0
+        self.num_bids = 0
+        self.num_wins = 0
+        self.num_losses = 0
